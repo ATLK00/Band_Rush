@@ -1,0 +1,27 @@
+services:
+  # Backend - Node.js WebSocket Server
+  - type: web
+    name: band-rush-server
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+    healthCheckPath: /health
+
+  # Frontend - React Static Site
+  - type: web
+    name: band-rush-client
+    runtime: node
+    rootDir: client
+    buildCommand: npm install && npm run build
+    startCommand: npx serve -s build -l 3000
+    envVars:
+      - key: REACT_APP_SERVER_URL
+        sync: false   # ← ใส่ URL ของ band-rush-server ใน Render dashboard
+      - key: NODE_OPTIONS
+        value: "--openssl-legacy-provider"
