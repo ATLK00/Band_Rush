@@ -157,6 +157,10 @@ function spawnRound(room) {
 function endRound(room) {
   clearTimeout(room._roundTimeout);
   room.timerEndsAt = null;
+  room.players.forEach(p => {
+    // whatever's still sitting in the box when the round ends counts as missed too
+    if (p.box) { p.tray.push(p.box); p.box = null; }
+  });
   const summary = room.players.map(p => ({
     name: p.name,
     categoryId: p.categoryId,
@@ -225,13 +229,13 @@ io.on('connection', socket => {
     broadcastState(code);
   });
 
-  // Player drags a matching item into their own box, then sends box up (scores)
-  socket.on('collect', ({ itemId }) => {
+  // Player drags a matching item into their box (box holds one item at a time)
+  socket.on('loadBox', ({ itemId }) => {
     const code = socket.data.roomCode;
     const room = rooms[code];
     if (!room || !room.started) return;
     const p = room.players.find(pl => pl.id === socket.id);
-    if (!p) return;
+    if (!p || p.box) return; // box already occupied
 
     const idx = p.tray.findIndex(t => t.id === itemId);
     if (idx === -1) return;
@@ -239,6 +243,19 @@ io.on('connection', socket => {
     if (item.categoryId !== p.categoryId) return; // must match own category
 
     p.tray.splice(idx, 1);
+    p.box = item;
+    broadcastState(code);
+  });
+
+  // Player pushes their loaded box up top — scores it
+  socket.on('sendBox', () => {
+    const code = socket.data.roomCode;
+    const room = rooms[code];
+    if (!room || !room.started) return;
+    const p = room.players.find(pl => pl.id === socket.id);
+    if (!p || !p.box) return;
+
+    p.box = null;
     p.score += 1;
     p.collectedThisRound = (p.collectedThisRound || 0) + 1;
 

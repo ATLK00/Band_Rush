@@ -96,6 +96,44 @@
   .summary-row{display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.1); font-size:.9em;}
   .summary-row:last-child{border-bottom:none;}
   .missed{font-size:.75em; color:#ffb3b3;}
+
+  /* Create-room panel */
+  .create-panel{ margin-top:14px; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.14);
+    border-radius:16px; padding:16px; text-align:center; }
+  .create-title{ font-weight:800; font-size:1.05em; margin-bottom:2px; }
+  .create-sub{ color:var(--muted); font-size:.8em; margin-bottom:12px; }
+  .player-count-picker{ display:flex; gap:8px; justify-content:center; }
+  .count-btn{ width:46px; height:46px; border-radius:50%; border:2px solid var(--muted); background:transparent;
+    color:#fff; font-weight:800; font-size:1.05em; padding:0; width:46px; max-width:46px; }
+  .count-btn.selected{ background:var(--accent); border-color:var(--accent); color:#221; }
+
+  /* Send box */
+  .box-slot{ display:flex; justify-content:center; margin-top:8px; }
+  .send-box{
+    width:72px; height:72px; border-radius:16px; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:2px; font-size:.65em; font-weight:700; text-align:center; touch-action:none;
+    background:rgba(255,255,255,.06); border:2px dashed var(--accent); color:var(--muted);
+  }
+  .send-box .emoji{ font-size:1.5em; }
+  .send-box.filled{ background:var(--card); color:#221; border-style:solid; cursor:grab; }
+  .send-box.zone-active{ background:rgba(255,183,3,.4); transform:scale(1.05); }
+  .send-box.zone-reject{ background:rgba(255,90,90,.35); border-color:#ff5a5a; color:#ffb3b3; }
+  .send-box.drop-in{ animation:dropIn .5s cubic-bezier(.34,1.56,.64,1) both; }
+
+  /* Landscape phones */
+  @media (orientation:landscape) and (max-height:520px){
+    #gameScreen{ padding:6px 16px; gap:4px; justify-content:flex-start; }
+    .hint{ display:none; }
+    .topbar{ padding:2px 6px; }
+    .sendbar{ padding:6px; font-size:.8em; }
+    .box-slot{ margin-top:4px; }
+    .send-box{ width:56px; height:56px; }
+    .neighbors{ padding:0 2px; }
+    .neighbor-zone{ font-size:.62em; }
+    .playfield{ padding:4px; gap:8px; }
+    .item-card{ width:66px; height:82px; font-size:.68em; }
+    .item-card .emoji{ font-size:1.3em; }
+  }
 </style>
 </head>
 <body>
@@ -126,15 +164,16 @@
         <input id="joinCode" placeholder="รหัสห้อง 4 หลัก" maxlength="4" inputmode="numeric" />
         <button id="joinBtn" style="margin-top:8px">เข้าร่วมห้อง</button>
       </div>
-      <div id="createPanel" class="hidden" style="margin-top:14px">
-        <label style="font-size:.85em;color:var(--muted)">จำนวนผู้เล่น (2-5)</label>
-        <select id="maxPlayers">
-          <option value="2">2 คน</option>
-          <option value="3">3 คน</option>
-          <option value="4" selected>4 คน</option>
-          <option value="5">5 คน</option>
-        </select>
-        <button id="createBtn" style="margin-top:8px">ยืนยันสร้างห้อง</button>
+      <div id="createPanel" class="hidden create-panel">
+        <div class="create-title">🎈 ตั้งค่าห้องใหม่</div>
+        <div class="create-sub">เลือกจำนวนผู้เล่นที่จะเข้าร่วม</div>
+        <div class="player-count-picker" id="maxPlayersPicker">
+          <button type="button" class="count-btn" data-val="2">2</button>
+          <button type="button" class="count-btn" data-val="3">3</button>
+          <button type="button" class="count-btn selected" data-val="4">4</button>
+          <button type="button" class="count-btn" data-val="5">5</button>
+        </div>
+        <button id="createBtn" style="margin-top:14px">ยืนยันสร้างห้อง 🎻</button>
       </div>
       <div id="homeErr" class="err"></div>
     </div>
@@ -158,9 +197,16 @@
       <div class="catlabel" id="catLabel">CATEGORY</div>
       <div class="timer" id="timerDisp">⏱ 60</div>
     </div>
-    <div class="hint">รอบที่ <span id="roundNum">1</span> · เป้าหมาย <span id="targetNum">3</span> ชิ้น · ของตรงหมวดลากขึ้นแถบบน · ของไม่ตรงลากลอยไปทางซ้าย/ขวาให้เพื่อน</div>
+    <div class="hint">รอบที่ <span id="roundNum">1</span> · เป้าหมาย <span id="targetNum">3</span> ชิ้น · ของตรงหมวดลากใส่กล่องด้านบนแล้วผลักขึ้น · ของไม่ตรงลากลอยไปทางซ้าย/ขวาให้เพื่อน</div>
 
-    <div class="sendbar" id="sendBar">▲ แถบส่งของฉัน — ลากของตรง <span id="myCatTh2"></span> ขึ้นมาที่นี่</div>
+    <div class="sendbar" id="sendBar">
+      ▲ ลากของตรง <span id="myCatTh2"></span> ใส่กล่อง แล้วผลักกล่องขึ้น
+      <div class="box-slot">
+        <div class="send-box" id="sendBox">
+          <span class="box-hint">กล่องว่าง</span>
+        </div>
+      </div>
+    </div>
 
     <div class="neighbors">
       <div class="neighbor-zone" id="leftZone" data-dir="left">
@@ -204,6 +250,8 @@ let currentState = null;
 let lastRoundKeyShown = null;
 let lastSeenRound = null;
 const enteredIds = new Set(); // item ids we've already played an entrance animation for
+let myBoxFilled = false;      // read by the item drift physics to know if the box can accept an item
+let boxWasFilled = false;     // used to detect "box just emptied" so we can play the drop-in refill
 
 const $ = id => document.getElementById(id);
 
@@ -259,10 +307,18 @@ $('connectBtn').onclick = () => {
 // ---------- home actions ----------
 $('showCreate').onclick = () => $('createPanel').classList.toggle('hidden');
 
+let selectedMaxPlayers = 4;
+document.querySelectorAll('#maxPlayersPicker .count-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('#maxPlayersPicker .count-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    selectedMaxPlayers = parseInt(btn.dataset.val, 10);
+  };
+});
+
 $('createBtn').onclick = () => {
   myName = $('nameInput').value.trim() || 'Player';
-  const maxPlayers = parseInt($('maxPlayers').value, 10);
-  socket.emit('createRoom', { name: myName, maxPlayers }, res => {
+  socket.emit('createRoom', { name: myName, maxPlayers: selectedMaxPlayers }, res => {
     if(!res.ok){ $('homeErr').textContent = res.error || 'สร้างห้องไม่สำเร็จ'; return; }
     showScreen('lobbyScreen');
   });
@@ -319,6 +375,7 @@ function render(){
 
   renderTimer(state);
   renderTray(me);
+  renderBox(me);
 }
 
 function renderSeatCircle(state){
@@ -426,6 +483,75 @@ function speak(name){
   speechSynthesis.speak(u);
 }
 
+// ---------- send box (item goes into the box, then the box gets pushed up) ----------
+function renderBox(me){
+  const box = $('sendBox');
+  myBoxFilled = !!me.box;
+
+  if(me.box){
+    box.classList.add('filled');
+    box.innerHTML = `<div class="emoji">${EMOJI[me.box.name] || '🎵'}</div><div>${me.box.name}</div>`;
+  } else {
+    box.classList.remove('filled');
+    box.innerHTML = `<span class="box-hint">กล่องว่าง</span>`;
+    if(boxWasFilled){
+      // just got sent — a fresh empty box "drops in" from the top
+      box.classList.remove('drop-in');
+      void box.offsetWidth; // restart the animation
+      box.classList.add('drop-in');
+    }
+  }
+  boxWasFilled = myBoxFilled;
+}
+
+function attachBoxDrag(){
+  const box = $('sendBox');
+  const SEND_DISTANCE = 46;  // px dragged upward that counts as "pushed out"
+  const SEND_VELOCITY = 0.5; // px/ms upward flick that also counts, even if short
+  let dragging = false, startY = 0, curDy = 0, lastY = 0, lastT = 0, vy = 0;
+
+  box.addEventListener('pointerdown', e => {
+    if(!box.classList.contains('filled')) return;
+    e.preventDefault();
+    dragging = true;
+    curDy = 0; vy = 0;
+    box.style.transition = 'none';
+    startY = e.clientY; lastY = e.clientY; lastT = performance.now();
+    box.setPointerCapture && box.setPointerCapture(e.pointerId);
+  });
+
+  box.addEventListener('pointermove', e => {
+    if(!dragging) return;
+    const now = performance.now();
+    const dt = Math.max(1, now - lastT);
+    vy = (e.clientY - lastY) / dt;
+    lastY = e.clientY; lastT = now;
+    curDy = e.clientY - startY;
+    if(curDy > 0) curDy *= 0.25; // resist dragging it downward, this isn't a valid send
+    box.style.transform = `translateY(${curDy}px)`;
+  });
+
+  box.addEventListener('pointerup', () => {
+    if(!dragging) return;
+    dragging = false;
+    box.style.transition = 'transform .18s ease, opacity .18s ease';
+    const pushedFarEnough = (-curDy >= SEND_DISTANCE) || (vy <= -SEND_VELOCITY);
+    if(pushedFarEnough){
+      box.style.transform = 'translateY(-160%)';
+      box.style.opacity = '0';
+      setTimeout(() => {
+        socket.emit('sendBox');
+        box.style.transition = 'none';
+        box.style.transform = 'translateY(0)';
+        box.style.opacity = '1';
+      }, 160);
+    } else {
+      box.style.transform = 'translateY(0)';
+    }
+  });
+}
+attachBoxDrag();
+
 function renderSummary(state){
   const list = $('summaryList');
   list.innerHTML = '';
@@ -521,16 +647,16 @@ function driftFrame(now, card, itemId, matchesOwnCategory, vel){
   left += vx * 16;
   top += vy * 16;
 
-  // reached the top send-bar
-  const barRect = $('sendBar').getBoundingClientRect();
-  if(top <= barRect.bottom){
-    if(matchesOwnCategory){
-      finishSuccess(card, itemId, 'collect', null, speed);
+  // reached the send box
+  const boxRect = $('sendBox').getBoundingClientRect();
+  if(top <= boxRect.bottom){
+    if(matchesOwnCategory && !myBoxFilled){
+      finishSuccess(card, itemId, 'load', null, speed);
       return;
     } else {
-      // wrong category — the bar rejects it, bounce back down
+      // box already has something, or this item's the wrong category — bounce back down
       rejectFlash();
-      top = barRect.bottom;
+      top = boxRect.bottom;
       vy = Math.abs(vy) * 0.5 + 0.15;
     }
   }
@@ -572,23 +698,23 @@ function finishSuccess(card, itemId, action, direction, speed){
   setTimeout(() => {
     flyingIds.delete(itemId);
     card.remove();
-    if(action === 'collect') socket.emit('collect', { itemId });
+    if(action === 'load') socket.emit('loadBox', { itemId });
     else socket.emit('pass', { itemId, direction, speed });
   }, 140);
 }
 
 function updateSendbarHighlight(card){
-  const barRect = $('sendBar').getBoundingClientRect();
+  const boxRect = $('sendBox').getBoundingClientRect();
   const cardRect = card.getBoundingClientRect();
-  $('sendBar').classList.toggle('zone-active', cardRect.top <= barRect.bottom + 20);
+  $('sendBox').classList.toggle('zone-active', !myBoxFilled && cardRect.top <= boxRect.bottom + 20);
 }
 function clearSendbarHighlight(){
-  $('sendBar').classList.remove('zone-active');
+  $('sendBox').classList.remove('zone-active');
 }
 function rejectFlash(){
-  const bar = $('sendBar');
-  bar.classList.add('zone-reject');
-  setTimeout(() => bar.classList.remove('zone-reject'), 220);
+  const box = $('sendBox');
+  box.classList.add('zone-reject');
+  setTimeout(() => box.classList.remove('zone-reject'), 220);
 }
 </script>
 </body>
