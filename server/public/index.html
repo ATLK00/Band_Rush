@@ -79,6 +79,12 @@
   .item-card .emoji{font-size:1.6em;}
   .item-card.flying{position:fixed; z-index:999; box-shadow:0 8px 20px rgba(0,0,0,.5); margin:0;}
   .item-card .listen{position:absolute; top:2px; right:4px; font-size:.9em; opacity:.6;}
+  @keyframes dropIn{
+    from{ transform:translateY(-160%); opacity:0; }
+    60%{ opacity:1; }
+    to{ transform:translateY(0); opacity:1; }
+  }
+  .item-card.drop-in{ animation:dropIn .5s cubic-bezier(.34,1.56,.64,1) both; }
   .hint{font-size:.75em; color:var(--muted); text-align:center; padding:2px 10px;}
 
   /* Round summary overlay */
@@ -197,6 +203,7 @@ let myName = '';
 let currentState = null;
 let lastRoundKeyShown = null;
 let lastSeenRound = null;
+const enteredIds = new Set(); // item ids we've already played an entrance animation for
 
 const $ = id => document.getElementById(id);
 
@@ -355,19 +362,60 @@ function renderTray(me){
   });
   // drop stale flying ids (item already left this player's tray — sent, or round changed)
   flyingIds.forEach(id => { if(!me.tray.find(t => t.id === id)) flyingIds.delete(id); });
+  // stop tracking entrance-animation state for items no longer in anyone's view
+  enteredIds.forEach(id => { if(!me.tray.find(t => t.id === id)) enteredIds.delete(id); });
 
   field.innerHTML = '';
   me.tray.forEach(item => {
     if(preserved[item.id]){ field.appendChild(preserved[item.id]); return; }
     if(flyingIds.has(item.id)) return;
+
     const card = document.createElement('div');
     card.className = 'item-card';
     card.dataset.id = item.id;
     card.innerHTML = `<span class="listen">🔊</span><div class="emoji">${EMOJI[item.name] || '🎵'}</div><div>${item.name}</div>`;
     card.querySelector('.listen').onclick = ev => { ev.stopPropagation(); speak(item.name); };
-    attachDrag(card, item.id, item.categoryId === me.categoryId);
-    field.appendChild(card);
+    const matchesOwnCategory = item.categoryId === me.categoryId;
+    attachDrag(card, item.id, matchesOwnCategory);
+
+    const isNew = !enteredIds.has(item.id);
+    enteredIds.add(item.id);
+
+    if(isNew && item.enteredFrom){
+      // received from a neighbor's flick — fly in from that screen edge carrying their momentum,
+      // then settle in place when it runs out of speed (no gravity, matches the send physics)
+      field.appendChild(card);
+      startEdgeEntry(card, item.id, matchesOwnCategory, item.enteredFrom, item.entrySpeed);
+    } else if(isNew){
+      // dealt at round start / handed a random item — drop it in from the top of the screen
+      card.classList.add('drop-in');
+      card.addEventListener('animationend', () => card.classList.remove('drop-in'), { once:true });
+      field.appendChild(card);
+    } else {
+      field.appendChild(card);
+    }
   });
+}
+
+// Kicks off an already-in-flight card entering from the left/right edge with inward
+// momentum, reusing the same drift/friction/stop physics as a player-flicked card.
+function startEdgeEntry(card, itemId, matchesOwnCategory, fromEdge, entrySpeed){
+  const w = 78, h = 96;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const fromLeft = fromEdge === 'left';
+  card.classList.add('flying');
+  card.style.width = w + 'px';
+  card.style.height = h + 'px';
+  // start just inside the edge-detection threshold so it doesn't immediately re-trigger
+  // a pass right back out — it should look like it's sliding in from the edge, not bounce off it
+  card.style.left = (fromLeft ? EDGE_MARGIN + 1 : vw - EDGE_MARGIN - w - 1) + 'px';
+  card.style.top = Math.round(vh * 0.35 + Math.random() * vh * 0.2) + 'px';
+
+  flyingIds.add(itemId);
+  const mag = Math.max(0.15, Math.min(Math.abs(entrySpeed || 0.35), 1.1));
+  let vx = fromLeft ? mag : -mag;
+  let vy = 0;
+  requestAnimationFrame(t => driftFrame(t, card, itemId, matchesOwnCategory, { v:() => [vx,vy], set:(x,y)=>{vx=x;vy=y;} }));
 }
 
 function speak(name){
@@ -458,73 +506,75 @@ function attachDrag(card, itemId, matchesOwnCategory){
     // hand off to the momentum simulation with whatever velocity we captured
     rafId = requestAnimationFrame(t => driftFrame(t, card, itemId, matchesOwnCategory, { v:() => [vx,vy], set:(x,y)=>{vx=x;vy=y;} }));
   });
+}
 
-  function driftFrame(now, card, itemId, matchesOwnCategory, vel){
-    let [vx, vy] = vel.v();
-    const speed = Math.hypot(vx, vy);
+// Shared momentum simulation: used both when a player flicks a card themselves and
+// when a card is entering the screen already in motion (edge entry from a neighbor's pass).
+function driftFrame(now, card, itemId, matchesOwnCategory, vel){
+  let [vx, vy] = vel.v();
+  const speed = Math.hypot(vx, vy);
 
-    let left = parseFloat(card.style.left);
-    let top = parseFloat(card.style.top);
-    const w = card.offsetWidth, h = card.offsetHeight;
+  let left = parseFloat(card.style.left);
+  let top = parseFloat(card.style.top);
+  const w = card.offsetWidth, h = card.offsetHeight;
 
-    left += vx * 16;
-    top += vy * 16;
+  left += vx * 16;
+  top += vy * 16;
 
-    // reached the top send-bar
-    const barRect = $('sendBar').getBoundingClientRect();
-    if(top <= barRect.bottom){
-      if(matchesOwnCategory){
-        finishSuccess(card, itemId, 'collect', null);
-        return;
-      } else {
-        // wrong category — the bar rejects it, bounce back down
-        rejectFlash();
-        top = barRect.bottom;
-        vy = Math.abs(vy) * 0.5 + 0.15;
-      }
-    }
-
-    // reached left/right screen edge
-    if(left <= EDGE_MARGIN){
-      finishSuccess(card, itemId, 'pass', 'left');
+  // reached the top send-bar
+  const barRect = $('sendBar').getBoundingClientRect();
+  if(top <= barRect.bottom){
+    if(matchesOwnCategory){
+      finishSuccess(card, itemId, 'collect', null, speed);
       return;
+    } else {
+      // wrong category — the bar rejects it, bounce back down
+      rejectFlash();
+      top = barRect.bottom;
+      vy = Math.abs(vy) * 0.5 + 0.15;
     }
-    if(left + w >= window.innerWidth - EDGE_MARGIN){
-      finishSuccess(card, itemId, 'pass', 'right');
-      return;
-    }
-
-    // bounce off the bottom of the playable area
-    const bottomLimit = window.innerHeight - 12;
-    if(top + h >= bottomLimit){
-      top = bottomLimit - h;
-      vy = -Math.abs(vy) * 0.5;
-    }
-
-    vx *= FRICTION; vy *= FRICTION;
-    card.style.left = left + 'px';
-    card.style.top = top + 'px';
-    vel.set(vx, vy);
-
-    if(speed < STOP_SPEED){
-      // ran out of momentum mid-air — it just stays put, still grabbable
-      flyingIds.delete(itemId);
-      return;
-    }
-    requestAnimationFrame(t => driftFrame(t, card, itemId, matchesOwnCategory, vel));
   }
 
-  function finishSuccess(card, itemId, action, direction){
-    card.style.transition = 'opacity .15s ease, transform .15s ease';
-    card.style.opacity = '0';
-    card.style.transform = 'scale(0.6)';
-    setTimeout(() => {
-      flyingIds.delete(itemId);
-      card.remove();
-      if(action === 'collect') socket.emit('collect', { itemId });
-      else socket.emit('pass', { itemId, direction });
-    }, 140);
+  // reached left/right screen edge
+  if(left <= EDGE_MARGIN){
+    finishSuccess(card, itemId, 'pass', 'left', speed);
+    return;
   }
+  if(left + w >= window.innerWidth - EDGE_MARGIN){
+    finishSuccess(card, itemId, 'pass', 'right', speed);
+    return;
+  }
+
+  // bounce off the bottom of the playable area
+  const bottomLimit = window.innerHeight - 12;
+  if(top + h >= bottomLimit){
+    top = bottomLimit - h;
+    vy = -Math.abs(vy) * 0.5;
+  }
+
+  vx *= FRICTION; vy *= FRICTION;
+  card.style.left = left + 'px';
+  card.style.top = top + 'px';
+  vel.set(vx, vy);
+
+  if(speed < STOP_SPEED){
+    // ran out of momentum mid-air — it just stays put, still grabbable
+    flyingIds.delete(itemId);
+    return;
+  }
+  requestAnimationFrame(t => driftFrame(t, card, itemId, matchesOwnCategory, vel));
+}
+
+function finishSuccess(card, itemId, action, direction, speed){
+  card.style.transition = 'opacity .15s ease, transform .15s ease';
+  card.style.opacity = '0';
+  card.style.transform = 'scale(0.6)';
+  setTimeout(() => {
+    flyingIds.delete(itemId);
+    card.remove();
+    if(action === 'collect') socket.emit('collect', { itemId });
+    else socket.emit('pass', { itemId, direction, speed });
+  }, 140);
 }
 
 function updateSendbarHighlight(card){

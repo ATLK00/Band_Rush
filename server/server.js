@@ -247,7 +247,7 @@ io.on('connection', socket => {
   });
 
   // Player passes a non-matching item to left/right neighbor
-  socket.on('pass', ({ itemId, direction }) => {
+  socket.on('pass', ({ itemId, direction, speed }) => {
     const code = socket.data.roomCode;
     const room = rooms[code];
     if (!room || !room.started) return;
@@ -262,7 +262,13 @@ io.on('connection', socket => {
     const n = room.players.length;
     const dir = direction === 'left' ? -1 : 1;
     const target = room.players[(idx + dir + n) % n];
-    target.tray.push(item);
+    // tag which screen edge it should fly in from on the receiver's side, and how
+    // fast — the sender is on the receiver's *opposite* side from the pass direction
+    target.tray.push({
+      ...item,
+      enteredFrom: direction === 'left' ? 'right' : 'left',
+      entrySpeed: typeof speed === 'number' ? speed : undefined
+    });
 
     broadcastState(code);
   });
