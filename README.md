@@ -1,138 +1,78 @@
-# 🎵 Band Rush! (ตั้งวงด่วน!)
+# Orchestra Rush — เกมสอนประเภทเครื่องดนตรีสากล (Real-time, Socket.io)
 
-เกมจัดหมวดหมู่เครื่องดนตรีแบบ Real-time Multiplayer สำหรับห้องเรียน
+**อัปเดต:** ตอนนี้เกม (client) ถูกวางไว้ใน `server/public/index.html` แล้ว — เซิร์ฟเวอร์ตัวเดียว
+เสิร์ฟทั้งหน้าเกมและจัดการ realtime connection พร้อมกัน ได้ **URL เดียว** ใช้ทั้งหมด
+ไม่ต้องกรอก URL เซิร์ฟเวอร์เองตอนเปิดเกม (หน้าเกมจะต่อกับ origin ของตัวเองอัตโนมัติ)
 
-## 🗂 โครงสร้าง
+ดีเลย์ตอนส่งของให้เพื่อน: แทบเป็นศูนย์ (< 0.1 วินาที) เพราะใช้ WebSocket จริง ไม่ใช่ polling แบบเดิม
 
+โครงสร้างไฟล์ที่ต้อง deploy (ทั้งโฟลเดอร์ `server/`):
 ```
-band-rush/
-├── server/          ← Node.js + Socket.io (Backend)
-│   ├── index.js
-│   └── package.json
-├── client/          ← React (Frontend)
-│   ├── src/
-│   │   ├── App.js
-│   │   ├── hooks/useSocket.js
-│   │   └── components/
-│   │       ├── LobbyScreen.js
-│   │       ├── GameScreen.js
-│   │       ├── TeacherDashboard.js
-│   │       └── GameOverScreen.js
-│   └── package.json
-├── render.yaml      ← Render deployment config
-└── README.md
+server/
+  server.js
+  package.json
+  public/
+    index.html   ← หน้าเกม ถูกเสิร์ฟที่ URL หลักเลย
 ```
 
 ---
 
-## 🚀 Deploy บน Render (ฟรี!)
+## ขั้นตอนที่ 1 — เอาโฟลเดอร์ `server/` ขึ้น GitHub
 
-### ขั้นตอนที่ 1: Push ขึ้น GitHub
+1. เข้า https://github.com → กด **New repository** (ตั้งชื่อ เช่น `orchestra-rush`)
+2. อัปโหลดไฟล์/โฟลเดอร์ทั้งหมดใน `server/` เข้า repo นี้ (ต้องได้โครงสร้างตามด้านบน รวมโฟลเดอร์ `public/` ด้วย)
+   - ถ้าไม่คุ้น git: หน้า repo เปล่าจะมีลิงก์ "uploading an existing file" → ลากทั้งโฟลเดอร์ใส่แล้ว Commit
 
-```bash
-git init
-git add .
-git commit -m "🎵 Band Rush initial commit"
-git remote add origin https://github.com/YOUR_USERNAME/band-rush.git
-git push -u origin main
-```
+## ขั้นตอนที่ 2 — Deploy บน Render.com
 
-### ขั้นตอนที่ 2: Deploy Server ก่อน
-
-1. ไปที่ [render.com](https://render.com) → New → Web Service
-2. เชื่อม GitHub repo → เลือก repo `band-rush`
+1. สมัคร/ล็อกอิน https://render.com (แนะนำ Sign in with GitHub)
+2. กด **New → Web Service** → เลือก repo `orchestra-rush` ที่อัปโหลดไว้ → Connect
 3. ตั้งค่า:
-   - **Root Directory:** `server`
    - **Runtime:** Node
    - **Build Command:** `npm install`
-   - **Start Command:** `node index.js`
+   - **Start Command:** `npm start`
    - **Instance Type:** Free
-4. กด **Create Web Service**
-5. รอ deploy → จด URL ที่ได้ เช่น `https://band-rush-server.onrender.com`
+4. กด **Deploy Web Service** รอ 1-3 นาที ดู log จนขึ้น `Orchestra Rush server listening on port...`
+5. จะได้ URL แบบ `https://orchestra-rush.onrender.com` — **นี่คือลิงก์เกมเลย** เปิดตรงๆ ในเบราว์เซอร์ได้ทันที ไม่ต้องกรอกอะไรเพิ่ม
 
-### ขั้นตอนที่ 3: Deploy Client
+⚠️ **ข้อจำกัดของ Free tier บน Render:** ถ้าไม่มีใครเล่น เซิร์ฟเวอร์จะ "หลับ" หลัง ~15 นาที ตอนมีคนเข้ามาใหม่จะต้องรอ ~30-60 วินาทีให้เซิร์ฟเวอร์ตื่น (ครั้งแรกเท่านั้น ครั้งต่อไปจะเร็วปกติ) — ถ้าจะใช้สอนจริง แนะนำเปิดลิงก์ทิ้งไว้ล่วงหน้าก่อนเริ่มคาบสัก 1 นาที
 
-1. Render → New → Web Service (อีกครั้ง)
-2. เชื่อม GitHub repo เดิม
-3. ตั้งค่า:
-   - **Root Directory:** `client`
-   - **Runtime:** Node
-   - **Build Command:** `npm install && npm run build`
-   - **Start Command:** `npx serve -s build -l 3000`
-4. เพิ่ม **Environment Variable:**
-   - Key: `REACT_APP_SERVER_URL`
-   - Value: URL ของ server ที่ได้จากขั้นที่ 2 (ไม่มี / ท้าย)
-5. กด **Create Web Service**
-
-### ขั้นตอนที่ 4: ทดสอบ
-
-เปิด URL ของ client → ควรเห็นหน้า Lobby ของ Band Rush!
+### แบบ Railway.app (ทางเลือก)
+1. สมัครที่ https://railway.app
+2. New Project → Deploy from GitHub repo (repo เดียวกับด้านบน)
+3. Railway detect Node.js อัตโนมัติและรัน `npm start` ให้เอง
+4. เข้า Settings → Networking → Generate Domain เพื่อได้ URL สาธารณะ
 
 ---
 
-## 🧪 ทดสอบในเครื่อง (Local)
+## ขั้นตอนที่ 3 — เล่นเกม
 
-```bash
-# Terminal 1 - Server
-cd server
-npm install
-npm start
-# Server จะรันที่ http://localhost:3001
+1. เปิด URL จาก Render (เช่น `https://orchestra-rush.onrender.com`) บนมือถือ/คอมของทุกคน — หน้าจะเชื่อมต่อเซิร์ฟเวอร์ให้อัตโนมัติ
+2. คนแรกกด "สร้างห้องใหม่" เลือกจำนวนผู้เล่น (2-5) → ได้รหัสห้อง 4 หลัก
+3. คนอื่นกรอกชื่อ + รหัสห้อง → กด "เข้าร่วมห้อง"
+4. หัวห้องกด "เริ่มเกม" เมื่อครบคน
 
-# Terminal 2 - Client
-cd client
-npm install
-REACT_APP_SERVER_URL=http://localhost:3001 npm start
-# Client จะรันที่ http://localhost:3000
-```
-
-เปิดหน้าต่างเบราว์เซอร์หลายๆ อันเพื่อจำลองผู้เล่นหลายคน
+*(ถ้าจำเป็นต้องเปิดไฟล์ index.html แยกจากเซิร์ฟเวอร์ เช่น host บน Netlify/GitHub Pages ต่างหาก หน้าเกมจะตรวจจับเองแล้วโชว์ช่องกรอก URL เซิร์ฟเวอร์ให้ — แต่ไม่จำเป็นถ้าทำตามขั้นตอนด้านบน)*
 
 ---
 
-## 🎮 วิธีเล่น
+## กติกาเกม (ตามที่ออกแบบไว้)
 
-### ผู้เล่น (Mobile Landscape)
-1. เปิดเว็บบน Chrome มือถือ → **เข้าร่วมห้อง** พิมพ์ PIN
-2. **กดการ์ด** เพื่อหงาย → ดูเครื่องดนตรีและหมวด
-3. **ลากการ์ด** ไปใส่ Drop Zone หมวดที่ถูกต้อง (ด้านบน)
-4. **ปัดการ์ดออกขอบ** ซ้าย/ขวา → ส่งการ์ดไปให้เพื่อนในทีม
-5. **กด 🛒 Shop** → ซื้อไอเทมด้วยเหรียญที่สะสม
-
-### ครู (Desktop/Projector)
-1. สร้างห้อง → แชร์ PIN ให้นักเรียน
-2. เปิดหน้าจอครู → ดู Dashboard คะแนนแบบ Real-time
-3. กด **เริ่มเกม** เมื่อนักเรียนเข้าครบ
+- แต่ละคนได้รับ **หมวดเครื่องดนตรี** ไม่ซ้ำกัน: เครื่องสาย / ลมไม้ / ทองเหลือง / เพอร์คัชชัน / คีย์บอร์ด
+- ผู้เล่นถูกจัดที่นั่งเป็น**วงกลม** เห็นแค่เพื่อนซ้าย-ขวาบนจอ
+- เครื่องดนตรีที่ได้รับ:
+  - **ตรงหมวดตัวเอง** → ลากลงกล่อง 📦 (ได้แต้มทันที)
+  - **ไม่ตรงหมวด** → ลากออกซ้ายหรือขวา ไปหาเพื่อนข้างๆ (ถ้าของต้องไปไกลกว่านั้น ต้องส่งต่อกันเป็นทอดๆ — ตะโกน/พิมพ์บอกกัน!)
+- กด 🔊 บนการ์ดเพื่อฟังชื่อเครื่องดนตรีเป็นภาษาอังกฤษ (text-to-speech ของเบราว์เซอร์)
+- แต่ละรอบมีเวลาจำกัด และมี**เป้าหมาย**จำนวนชิ้นที่ต้องเก็บให้ครบ
+- รอบถัดไปยากขึ้นอัตโนมัติ: เวลาสั้นลง, ของเยอะขึ้น, เริ่มมีเครื่องดนตรีหน้าตา/ชื่อคล้ายกัน (เช่น Violin vs Viola, Trumpet vs Trombone) เพื่อฝึกแยกแยะ
+- จบรอบ: สรุปคะแนนทุกคน พร้อมชื่อเครื่องดนตรีที่พลาดไป (ใช้ทวนความรู้ในห้องเรียน)
 
 ---
 
-## 📡 Socket Events
+## ปรับแต่งเพิ่มเติมได้ที่ไหน
 
-| Event | ทิศทาง | หน้าที่ |
-|-------|---------|---------|
-| `create_room` | C→S | สร้างห้องใหม่ |
-| `join_room` | C→S | เข้าร่วมห้อง |
-| `start_game` | C→S | เริ่มเกม (โฮสต์เท่านั้น) |
-| `flip_card` | C→S | หงาย/คว่ำการ์ด |
-| `swipe_card` | C→S | ปัดการ์ดไปเพื่อน |
-| `submit_match` | C→S | จับคู่การ์ดกับหมวด |
-| `buy_and_use_item` | C→S | ซื้อและใช้ไอเทม |
-| `sync_state` | S→C | อัปเดต state ทุก client |
-| `receive_card` | S→C | การ์ดบินเข้าจอ |
-| `match_result` | S→C | ผลการจับคู่ |
-| `coin_updated` | S→C | อัปเดตเหรียญ |
-| `sabotage_hit` | S→C | โดนไอเทมโจมตี |
-| `timer_tick` | S→C | นับถอยหลัง |
-| `game_over` | S→C | เกมจบ + leaderboard |
-
----
-
-## 🛠 Phases ที่ทำแล้ว (Phase 1-4)
-
-- ✅ Phase 1: Join Room / Lobby System
-- ✅ Phase 2: Card flip + drag UI
-- ✅ Phase 3: Cross-screen swipe magic
-- ✅ Phase 4: Match logic + coin economy
-- ✅ Phase 5: Shop + Sabotage items (Coda/Glissando/Fermata/Forte)
-- ✅ Teacher Dashboard
-- 🔲 Phase 6: Real graphic assets + sound effects
+- **รายชื่อเครื่องดนตรีต่อหมวด / คู่ที่คล้ายกัน** → แก้ที่ `server/server.js` ตัวแปร `INSTRUMENTS` และ `CONFUSABLES`
+- **จำนวนของต่อรอบ / เวลาต่อรอบ / ความยาก** → ฟังก์ชัน `spawnRound()` ใน `server.js`
+- **อีโมจิ/หน้าตาการ์ด** → ตัวแปร `EMOJI` ใน `client/index.html`
+- อยากได้เสียงเครื่องดนตรีจริง (ไม่ใช่ TTS อ่านชื่อ) → ต้องอัปโหลดไฟล์เสียง .mp3 แล้วเปลี่ยนฟังก์ชัน `speak()` ให้เล่นไฟล์เสียงแทน

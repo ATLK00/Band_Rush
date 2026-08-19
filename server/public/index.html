@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Orchestra Rush</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+  :root{
+    --bg1:#1b1035; --bg2:#2d1b57; --accent:#ffb703; --accent2:#fb8500;
+    --card:#f8f5ff; --text:#fff; --muted:#c9bfe8;
+    --strings:#e07a5f; --woodwind:#81b29a; --brass:#f2cc8f; --percussion:#9d8df1; --keys:#3d5a80;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none;}
+  html,body{height:100%; margin:0; font-family:'Segoe UI',system-ui,sans-serif;
+    background:linear-gradient(160deg,var(--bg1),var(--bg2)); color:var(--text); overflow:hidden;}
+  #app{height:100%; display:flex; flex-direction:column;}
+  .screen{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; gap:14px;}
+  h1{font-size:1.8em; margin:0 0 6px; letter-spacing:1px;}
+  h1 span{color:var(--accent);}
+  .sub{color:var(--muted); text-align:center; margin-top:-8px; font-size:.95em;}
+  input, select{
+    width:100%; max-width:320px; padding:14px; border-radius:12px; border:none;
+    font-size:1.1em; text-align:center; background:#fff; color:#221; margin-top:4px;
+  }
+  button{
+    padding:14px 22px; border-radius:14px; border:none; font-size:1.05em; font-weight:700;
+    background:var(--accent); color:#221; cursor:pointer; width:100%; max-width:320px;
+    transition:transform .1s;
+  }
+  button:active{transform:scale(.96);}
+  button.secondary{background:transparent; border:2px solid var(--muted); color:var(--muted);}
+  .card-panel{background:rgba(255,255,255,.06); border-radius:18px; padding:20px; width:100%; max-width:360px;}
+  .hidden{display:none !important;}
+  .err{color:#ff8080; min-height:1.2em; font-size:.9em;}
+  .row{display:flex; gap:10px; width:100%; max-width:320px;}
+  .row button{flex:1;}
+
+  /* Lobby */
+  .seat-circle{position:relative; width:240px; height:240px; margin:10px auto;}
+  .seat{
+    position:absolute; width:64px; height:64px; margin-left:-32px; margin-top:-32px;
+    background:rgba(255,255,255,.1); border:2px solid var(--muted); border-radius:50%;
+    display:flex; align-items:center; justify-content:center; font-size:.75em; text-align:center; padding:4px;
+  }
+  .seat.me{border-color:var(--accent); background:rgba(255,183,3,.25);}
+  .roomcode{font-size:2em; letter-spacing:6px; font-weight:800; color:var(--accent); text-align:center;}
+
+  /* Game screen */
+  #gameScreen{justify-content:flex-start; padding:10px; gap:6px; position:relative;}
+  .topbar{width:100%; display:flex; justify-content:space-between; align-items:center; padding:4px 8px;}
+  .catlabel{font-size:1.3em; font-weight:800; letter-spacing:2px; padding:6px 16px; border-radius:20px;}
+  .timer{font-size:1.1em; font-weight:700; background:rgba(0,0,0,.3); padding:4px 12px; border-radius:12px;}
+  .score{font-size:1em; background:rgba(0,0,0,.3); padding:4px 12px; border-radius:12px;}
+
+  .neighbors{width:100%; display:flex; justify-content:space-between; align-items:center; padding:0 4px; flex:0 0 auto;}
+  .neighbor-zone{
+    width:70px; height:110px; border-radius:16px; background:rgba(255,255,255,.08);
+    border:2px dashed var(--muted); display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-size:.7em; text-align:center; padding:4px; gap:4px;
+  }
+  .neighbor-zone.drag-over{background:rgba(255,183,3,.3); border-color:var(--accent);}
+  .neighbor-zone .arrow{font-size:1.4em;}
+
+  .playfield{flex:1; width:100%; position:relative; display:flex; flex-wrap:wrap; align-content:center; justify-content:center; gap:12px; padding:10px;}
+  .item-card{
+    width:78px; height:96px; border-radius:14px; background:var(--card); color:#221;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+    box-shadow:0 4px 10px rgba(0,0,0,.3); font-size:.72em; font-weight:700; text-align:center; padding:6px;
+    touch-action:none; cursor:grab; position:relative;
+  }
+  .item-card .emoji{font-size:1.6em;}
+  .item-card.dragging{position:fixed; z-index:999; pointer-events:none; box-shadow:0 8px 20px rgba(0,0,0,.5); transform:scale(1.08);}
+  .item-card .listen{position:absolute; top:2px; right:4px; font-size:.9em; opacity:.6;}
+
+  .boxzone{
+    width:110px; height:110px; border-radius:20px; background:rgba(255,255,255,.08);
+    border:3px dashed var(--accent); display:flex; flex-direction:column; align-items:center; justify-content:center;
+    margin:8px auto; font-size:.8em; gap:2px;
+  }
+  .boxzone.drag-over{background:rgba(255,183,3,.3);}
+  .boxzone .boxicon{font-size:2em;}
+  .boxfull{animation:pulse .6s ease;}
+  @keyframes pulse{0%{transform:scale(1);}50%{transform:scale(1.15);}100%{transform:scale(1);}}
+
+  .hint{font-size:.75em; color:var(--muted); text-align:center; padding:2px 10px;}
+
+  /* Round summary overlay */
+  .overlay{
+    position:fixed; inset:0; background:rgba(10,5,25,.92); display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:12px; padding:20px; z-index:1000;
+  }
+  .summary-card{background:rgba(255,255,255,.08); border-radius:16px; padding:14px 18px; width:100%; max-width:340px;}
+  .summary-row{display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.1); font-size:.9em;}
+  .summary-row:last-child{border-bottom:none;}
+  .missed{font-size:.75em; color:#ffb3b3;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HOME SCREEN -->
+  <div id="homeScreen" class="screen">
+    <h1>🎻 Orchestra <span>Rush</span></h1>
+    <div class="sub">เกมส่งเครื่องดนตรี เรียนรู้ประเภทเครื่องดนตรีสากล</div>
+
+    <div class="card-panel" id="connectPanel">
+      <div id="connStatus" class="sub">กำลังเชื่อมต่อเซิร์ฟเวอร์...</div>
+    </div>
+
+    <!-- ใช้เฉพาะกรณีเปิด index.html แยกจากเซิร์ฟเวอร์ (ไม่ได้ host คู่กัน) -->
+    <div class="card-panel hidden" id="manualUrlPanel">
+      <label style="font-size:.85em;color:var(--muted)">URL เซิร์ฟเวอร์ (ที่ deploy ไว้)</label>
+      <input id="serverUrl" placeholder="เช่น https://your-app.onrender.com" />
+      <button id="connectBtn" style="margin-top:12px">เชื่อมต่อเซิร์ฟเวอร์</button>
+    </div>
+
+    <div class="card-panel hidden" id="afterConnect">
+      <input id="nameInput" placeholder="ชื่อของคุณ" maxlength="14" />
+      <div style="margin-top:14px">
+        <button id="showCreate">สร้างห้องใหม่</button>
+      </div>
+      <div style="margin-top:10px">
+        <input id="joinCode" placeholder="รหัสห้อง 4 หลัก" maxlength="4" inputmode="numeric" />
+        <button id="joinBtn" style="margin-top:8px">เข้าร่วมห้อง</button>
+      </div>
+      <div id="createPanel" class="hidden" style="margin-top:14px">
+        <label style="font-size:.85em;color:var(--muted)">จำนวนผู้เล่น (2-5)</label>
+        <select id="maxPlayers">
+          <option value="2">2 คน</option>
+          <option value="3">3 คน</option>
+          <option value="4" selected>4 คน</option>
+          <option value="5">5 คน</option>
+        </select>
+        <button id="createBtn" style="margin-top:8px">ยืนยันสร้างห้อง</button>
+      </div>
+      <div id="homeErr" class="err"></div>
+    </div>
+  </div>
+
+  <!-- LOBBY SCREEN -->
+  <div id="lobbyScreen" class="screen hidden">
+    <h1>ห้องรอเริ่มเกม</h1>
+    <div class="roomcode" id="lobbyCode">----</div>
+    <div class="sub">แชร์รหัสนี้ให้เพื่อนเข้าร่วม</div>
+    <div class="seat-circle" id="seatCircle"></div>
+    <div class="sub" id="lobbyCount">0 / 0 คน</div>
+    <button id="startBtn" class="hidden">เริ่มเกม 🎵</button>
+    <div class="sub" id="waitMsg">รอหัวห้องกดเริ่มเกม...</div>
+  </div>
+
+  <!-- GAME SCREEN -->
+  <div id="gameScreen" class="screen hidden">
+    <div class="topbar">
+      <div class="score" id="scoreDisp">⭐ 0</div>
+      <div class="catlabel" id="catLabel">CATEGORY</div>
+      <div class="timer" id="timerDisp">⏱ 60</div>
+    </div>
+    <div class="hint">รอบที่ <span id="roundNum">1</span> · เป้าหมาย <span id="targetNum">3</span> ชิ้น · ลากของตรงหมวดลงกล่อง 📦 · ของไม่ตรงลากออกซ้าย/ขวา</div>
+
+    <div class="neighbors">
+      <div class="neighbor-zone" id="leftZone" data-dir="left">
+        <div class="arrow">◀</div>
+        <div id="leftName">-</div>
+      </div>
+      <div style="font-size:.7em; color:var(--muted); text-align:center">คุณ<br><b id="myCatTh"></b></div>
+      <div class="neighbor-zone" id="rightZone" data-dir="right">
+        <div id="rightName">-</div>
+        <div class="arrow">▶</div>
+      </div>
+    </div>
+
+    <div class="playfield" id="playfield"></div>
+
+    <div class="boxzone" id="boxZone">
+      <div class="boxicon">📦</div>
+      <div>กล่องของฉัน</div>
+    </div>
+  </div>
+
+  <!-- ROUND SUMMARY OVERLAY -->
+  <div id="summaryOverlay" class="overlay hidden">
+    <h1>สรุปผลรอบนี้</h1>
+    <div id="summaryList" style="width:100%; max-width:360px; display:flex; flex-direction:column; gap:8px;"></div>
+    <button id="nextRoundBtn" class="hidden">รอบถัดไป ▶</button>
+    <div class="sub" id="summaryWait">รอหัวห้องเริ่มรอบถัดไป...</div>
+  </div>
+
+</div>
+
+<script>
+const EMOJI = {
+  'Violin':'🎻','Viola':'🎻','Cello':'🎻','Double Bass':'🎻','Guitar':'🎸','Harp':'🪕',
+  'Flute':'🪈','Clarinet':'🪈','Oboe':'🪈','Bassoon':'🪈','Piccolo':'🪈','Saxophone':'🎷',
+  'Trumpet':'🎺','Trombone':'🎺','French Horn':'📯','Tuba':'🎺','Cornet':'🎺','Euphonium':'🎺',
+  'Snare Drum':'🥁','Bass Drum':'🥁','Xylophone':'🎼','Cymbal':'🥁','Triangle':'🔺','Timpani':'🥁',
+  'Piano':'🎹','Keyboard':'🎹','Accordion':'🪗','Organ':'🎹','Celesta':'🎹','Harpsichord':'🎹'
+};
+const CAT_COLOR = { strings:'var(--strings)', woodwind:'var(--woodwind)', brass:'var(--brass)', percussion:'var(--percussion)', keys:'var(--keys)' };
+
+let socket = null;
+let myId = null;
+let myName = '';
+let currentState = null;
+let lastRoundKeyShown = null;
+
+const $ = id => document.getElementById(id);
+
+function showScreen(id){
+  ['homeScreen','lobbyScreen','gameScreen'].forEach(s => $(s).classList.toggle('hidden', s !== id));
+}
+
+// ---------- connect ----------
+// เกมนี้ host คู่กับเซิร์ฟเวอร์ (server/public/) จึงเชื่อมต่อ origin เดียวกันได้อัตโนมัติ
+// ถ้าเปิดไฟล์ index.html แยกต่างหาก (ไม่ได้อยู่บนเซิร์ฟเวอร์เดียวกัน) จะโชว์ช่องกรอก URL แทน
+function wireSocketEvents(){
+  socket.on('connect', () => {
+    myId = socket.id;
+    $('connStatus').textContent = '';
+    $('connectPanel').classList.add('hidden');
+    $('manualUrlPanel').classList.add('hidden');
+    $('afterConnect').classList.remove('hidden');
+  });
+  socket.on('connect_error', () => {
+    $('connStatus').textContent = 'เชื่อมต่อไม่สำเร็จ';
+    $('manualUrlPanel').classList.remove('hidden');
+  });
+  socket.on('state', state => {
+    currentState = state;
+    myId = socket.id;
+    render();
+  });
+}
+
+function tryAutoConnect(){
+  // ถ้าเปิดผ่าน http(s) จริง (ไม่ใช่ file://) ให้ลองต่อ origin เดียวกันก่อนเลย
+  if(location.protocol === 'http:' || location.protocol === 'https:'){
+    socket = io(location.origin, { transports:['websocket','polling'] });
+    wireSocketEvents();
+  } else {
+    $('connStatus').textContent = 'เปิดไฟล์นี้แบบ local — กรอก URL เซิร์ฟเวอร์ด้านล่าง';
+    $('manualUrlPanel').classList.remove('hidden');
+  }
+}
+tryAutoConnect();
+
+$('connectBtn').onclick = () => {
+  const url = $('serverUrl').value.trim();
+  if(!url){ $('connStatus').textContent = 'กรอก URL เซิร์ฟเวอร์ก่อนครับ'; return; }
+  $('connStatus').textContent = 'กำลังเชื่อมต่อ...';
+  if(socket) socket.disconnect();
+  try{
+    socket = io(url, { transports:['websocket','polling'] });
+    wireSocketEvents();
+  }catch(e){ $('connStatus').textContent = 'URL ไม่ถูกต้อง'; }
+};
+
+// ---------- home actions ----------
+$('showCreate').onclick = () => $('createPanel').classList.toggle('hidden');
+
+$('createBtn').onclick = () => {
+  myName = $('nameInput').value.trim() || 'Player';
+  const maxPlayers = parseInt($('maxPlayers').value, 10);
+  socket.emit('createRoom', { name: myName, maxPlayers }, res => {
+    if(!res.ok){ $('homeErr').textContent = res.error || 'สร้างห้องไม่สำเร็จ'; return; }
+    showScreen('lobbyScreen');
+  });
+};
+
+$('joinBtn').onclick = () => {
+  myName = $('nameInput').value.trim() || 'Player';
+  const code = $('joinCode').value.trim();
+  if(code.length !== 4){ $('homeErr').textContent = 'รหัสห้องต้อง 4 หลัก'; return; }
+  socket.emit('joinRoom', { name: myName, code }, res => {
+    if(!res.ok){ $('homeErr').textContent = res.error || 'เข้าห้องไม่สำเร็จ'; return; }
+    showScreen('lobbyScreen');
+  });
+};
+
+$('startBtn').onclick = () => socket.emit('startGame');
+$('nextRoundBtn').onclick = () => socket.emit('nextRound');
+
+// ---------- render ----------
+function render(){
+  if(!currentState) return;
+  const state = currentState;
+  const me = state.players.find(p => p.id === myId);
+  if(!me) return;
+
+  if(!state.started){
+    showScreen('lobbyScreen');
+    $('lobbyCode').textContent = state.code;
+    $('lobbyCount').textContent = `${state.players.length} / ${state.maxPlayers} คน`;
+    renderSeatCircle(state);
+    const isHost = state.players[0] && state.players[0].id === myId; // host = first joined kept at index0 pre-shuffle; fallback ok
+    $('startBtn').classList.toggle('hidden', state.players.length < 2);
+    $('waitMsg').classList.toggle('hidden', state.players.length < 2);
+    return;
+  }
+
+  showScreen('gameScreen');
+  $('summaryOverlay').classList.toggle('hidden', !state.lastRoundSummary);
+  if(state.lastRoundSummary){
+    renderSummary(state);
+    return;
+  }
+
+  $('scoreDisp').textContent = '⭐ ' + me.score;
+  $('roundNum').textContent = state.round;
+  $('targetNum').textContent = state.targetPerRound;
+  $('catLabel').textContent = me.category.label;
+  $('catLabel').style.background = CAT_COLOR[me.categoryId];
+  $('catLabel').style.color = '#1a1a1a';
+  $('myCatTh').textContent = me.category.labelTh;
+  $('leftName').textContent = me.leftNeighbor || '-';
+  $('rightName').textContent = me.rightNeighbor || '-';
+
+  renderTimer(state);
+  renderTray(me);
+}
+
+function renderSeatCircle(state){
+  const wrap = $('seatCircle');
+  wrap.innerHTML = '';
+  const n = Math.max(state.players.length, 1);
+  const R = 95;
+  state.players.forEach((p, i) => {
+    const angle = (i / n) * 2 * Math.PI - Math.PI/2;
+    const x = 120 + R * Math.cos(angle);
+    const y = 120 + R * Math.sin(angle);
+    const el = document.createElement('div');
+    el.className = 'seat' + (p.id === myId ? ' me' : '');
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.textContent = p.name;
+    wrap.appendChild(el);
+  });
+}
+
+let timerInterval = null;
+function renderTimer(state){
+  clearInterval(timerInterval);
+  if(!state.timerEndsAt){ $('timerDisp').textContent = '⏱ -'; return; }
+  const tick = () => {
+    const secs = Math.max(0, Math.round((state.timerEndsAt - Date.now())/1000));
+    $('timerDisp').textContent = '⏱ ' + secs;
+    if(secs <= 0) clearInterval(timerInterval);
+  };
+  tick();
+  timerInterval = setInterval(tick, 500);
+}
+
+function renderTray(me){
+  const field = $('playfield');
+  field.innerHTML = '';
+  me.tray.forEach(item => {
+    const card = document.createElement('div');
+    card.className = 'item-card';
+    card.dataset.id = item.id;
+    card.innerHTML = `<span class="listen">🔊</span><div class="emoji">${EMOJI[item.name] || '🎵'}</div><div>${item.name}</div>`;
+    card.querySelector('.listen').onclick = ev => { ev.stopPropagation(); speak(item.name); };
+    attachDrag(card, item.id);
+    field.appendChild(card);
+  });
+}
+
+function speak(name){
+  if(!('speechSynthesis' in window)) return;
+  const u = new SpeechSynthesisUtterance(name);
+  u.lang = 'en-US'; u.rate = 0.9;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+
+function renderSummary(state){
+  const list = $('summaryList');
+  list.innerHTML = '';
+  state.lastRoundSummary.forEach(s => {
+    const row = document.createElement('div');
+    row.className = 'summary-card';
+    const ok = s.collected >= s.target;
+    row.innerHTML = `
+      <div class="summary-row"><b>${EMOJI[s.category.label]||''} ${s.name} (${s.category.labelTh})</b> <span>${ok?'✅':''} ${s.collected}/${s.target}</span></div>
+      ${s.missed.length ? `<div class="missed">พลาด: ${s.missed.join(', ')}</div>` : ''}
+    `;
+    list.appendChild(row);
+  });
+  const me = state.players.find(p => p.id === myId);
+  const isHost = state.players[0] && state.players[0].id === myId;
+  $('nextRoundBtn').classList.toggle('hidden', !isHost);
+  $('summaryWait').classList.toggle('hidden', isHost);
+}
+
+// ---------- drag & drop (pointer-based, touch friendly) ----------
+function attachDrag(card, itemId){
+  let dragging = false, clone = null, startX=0, startY=0;
+
+  card.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    dragging = true;
+    startX = e.clientX; startY = e.clientY;
+    clone = card.cloneNode(true);
+    clone.classList.add('dragging');
+    clone.style.left = (e.clientX - 39) + 'px';
+    clone.style.top = (e.clientY - 48) + 'px';
+    document.body.appendChild(clone);
+    card.style.opacity = '0.25';
+  });
+
+  window.addEventListener('pointermove', e => {
+    if(!dragging || !clone) return;
+    clone.style.left = (e.clientX - 39) + 'px';
+    clone.style.top = (e.clientY - 48) + 'px';
+    updateDropHighlight(e.clientX, e.clientY);
+  });
+
+  window.addEventListener('pointerup', e => {
+    if(!dragging) return;
+    dragging = false;
+    card.style.opacity = '1';
+    if(clone){ clone.remove(); clone = null; }
+    clearDropHighlight();
+    const zone = zoneAt(e.clientX, e.clientY);
+    if(zone === 'box') socket.emit('collect', { itemId });
+    else if(zone === 'left') socket.emit('pass', { itemId, direction:'left' });
+    else if(zone === 'right') socket.emit('pass', { itemId, direction:'right' });
+  });
+}
+
+function zoneAt(x,y){
+  const box = $('boxZone').getBoundingClientRect();
+  const left = $('leftZone').getBoundingClientRect();
+  const right = $('rightZone').getBoundingClientRect();
+  if(within(x,y,box)) return 'box';
+  if(within(x,y,left)) return 'left';
+  if(within(x,y,right)) return 'right';
+  return null;
+}
+function within(x,y,r){ return x>=r.left && x<=r.right && y>=r.top && y<=r.bottom; }
+
+function updateDropHighlight(x,y){
+  const zone = zoneAt(x,y);
+  $('boxZone').classList.toggle('drag-over', zone==='box');
+  $('leftZone').classList.toggle('drag-over', zone==='left');
+  $('rightZone').classList.toggle('drag-over', zone==='right');
+}
+function clearDropHighlight(){
+  $('boxZone').classList.remove('drag-over');
+  $('leftZone').classList.remove('drag-over');
+  $('rightZone').classList.remove('drag-over');
+}
+</script>
+</body>
+</html>
