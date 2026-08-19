@@ -55,14 +55,21 @@
 
   .neighbors{width:100%; display:flex; justify-content:space-between; align-items:center; padding:0 4px; flex:0 0 auto;}
   .neighbor-zone{
-    width:70px; height:110px; border-radius:16px; background:rgba(255,255,255,.08);
-    border:2px dashed var(--muted); display:flex; flex-direction:column; align-items:center; justify-content:center;
-    font-size:.7em; text-align:center; padding:4px; gap:4px;
+    font-size:.68em; text-align:center; padding:4px; color:var(--muted); display:flex; flex-direction:column; align-items:center; gap:2px;
   }
-  .neighbor-zone.drag-over{background:rgba(255,183,3,.3); border-color:var(--accent);}
-  .neighbor-zone .arrow{font-size:1.4em;}
+  .neighbor-zone .arrow{font-size:1.3em; color:var(--muted);}
+  .neighbor-zone.edge-glow .arrow{color:var(--accent); animation:pulseArrow .5s ease infinite alternate;}
+  @keyframes pulseArrow{from{transform:scale(1);}to{transform:scale(1.35);}}
 
-  .playfield{flex:1; width:100%; position:relative; display:flex; flex-wrap:wrap; align-content:center; justify-content:center; gap:12px; padding:10px;}
+  .sendbar{
+    width:100%; padding:10px 6px; border-radius:16px; text-align:center; font-size:.85em; font-weight:700;
+    background:rgba(255,183,3,.12); border:2px dashed var(--accent); color:var(--accent); flex:0 0 auto;
+    transition:background .15s, transform .15s;
+  }
+  .sendbar.zone-active{background:rgba(255,183,3,.4); transform:scale(1.03);}
+  .sendbar.zone-reject{background:rgba(255,90,90,.35); border-color:#ff5a5a; color:#ffb3b3;}
+
+  .playfield{flex:1; width:100%; position:relative; display:flex; flex-wrap:wrap; align-content:center; justify-content:center; gap:12px; padding:10px; overflow:visible;}
   .item-card{
     width:78px; height:96px; border-radius:14px; background:var(--card); color:#221;
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
@@ -70,19 +77,8 @@
     touch-action:none; cursor:grab; position:relative;
   }
   .item-card .emoji{font-size:1.6em;}
-  .item-card.dragging{position:fixed; z-index:999; pointer-events:none; box-shadow:0 8px 20px rgba(0,0,0,.5); transform:scale(1.08);}
+  .item-card.flying{position:fixed; z-index:999; box-shadow:0 8px 20px rgba(0,0,0,.5); margin:0;}
   .item-card .listen{position:absolute; top:2px; right:4px; font-size:.9em; opacity:.6;}
-
-  .boxzone{
-    width:110px; height:110px; border-radius:20px; background:rgba(255,255,255,.08);
-    border:3px dashed var(--accent); display:flex; flex-direction:column; align-items:center; justify-content:center;
-    margin:8px auto; font-size:.8em; gap:2px;
-  }
-  .boxzone.drag-over{background:rgba(255,183,3,.3);}
-  .boxzone .boxicon{font-size:2em;}
-  .boxfull{animation:pulse .6s ease;}
-  @keyframes pulse{0%{transform:scale(1);}50%{transform:scale(1.15);}100%{transform:scale(1);}}
-
   .hint{font-size:.75em; color:var(--muted); text-align:center; padding:2px 10px;}
 
   /* Round summary overlay */
@@ -156,7 +152,9 @@
       <div class="catlabel" id="catLabel">CATEGORY</div>
       <div class="timer" id="timerDisp">⏱ 60</div>
     </div>
-    <div class="hint">รอบที่ <span id="roundNum">1</span> · เป้าหมาย <span id="targetNum">3</span> ชิ้น · ลากของตรงหมวดลงกล่อง 📦 · ของไม่ตรงลากออกซ้าย/ขวา</div>
+    <div class="hint">รอบที่ <span id="roundNum">1</span> · เป้าหมาย <span id="targetNum">3</span> ชิ้น · ของตรงหมวดลากขึ้นแถบบน · ของไม่ตรงลากลอยไปทางซ้าย/ขวาให้เพื่อน</div>
+
+    <div class="sendbar" id="sendBar">▲ แถบส่งของฉัน — ลากของตรง <span id="myCatTh2"></span> ขึ้นมาที่นี่</div>
 
     <div class="neighbors">
       <div class="neighbor-zone" id="leftZone" data-dir="left">
@@ -171,11 +169,6 @@
     </div>
 
     <div class="playfield" id="playfield"></div>
-
-    <div class="boxzone" id="boxZone">
-      <div class="boxicon">📦</div>
-      <div>กล่องของฉัน</div>
-    </div>
   </div>
 
   <!-- ROUND SUMMARY OVERLAY -->
@@ -203,6 +196,7 @@ let myId = null;
 let myName = '';
 let currentState = null;
 let lastRoundKeyShown = null;
+let lastSeenRound = null;
 
 const $ = id => document.getElementById(id);
 
@@ -312,6 +306,7 @@ function render(){
   $('catLabel').style.background = CAT_COLOR[me.categoryId];
   $('catLabel').style.color = '#1a1a1a';
   $('myCatTh').textContent = me.category.labelTh;
+  $('myCatTh2').textContent = me.category.labelTh;
   $('leftName').textContent = me.leftNeighbor || '-';
   $('rightName').textContent = me.rightNeighbor || '-';
 
@@ -352,14 +347,25 @@ function renderTimer(state){
 
 function renderTray(me){
   const field = $('playfield');
+  // keep any card currently floating/mid-flight so we don't yank it out from under the player
+  const preserved = {};
+  flyingIds.forEach(id => {
+    const el = field.querySelector(`.item-card[data-id="${id}"]`);
+    if(el) preserved[id] = el;
+  });
+  // drop stale flying ids (item already left this player's tray — sent, or round changed)
+  flyingIds.forEach(id => { if(!me.tray.find(t => t.id === id)) flyingIds.delete(id); });
+
   field.innerHTML = '';
   me.tray.forEach(item => {
+    if(preserved[item.id]){ field.appendChild(preserved[item.id]); return; }
+    if(flyingIds.has(item.id)) return;
     const card = document.createElement('div');
     card.className = 'item-card';
     card.dataset.id = item.id;
     card.innerHTML = `<span class="listen">🔊</span><div class="emoji">${EMOJI[item.name] || '🎵'}</div><div>${item.name}</div>`;
     card.querySelector('.listen').onclick = ev => { ev.stopPropagation(); speak(item.name); };
-    attachDrag(card, item.id);
+    attachDrag(card, item.id, item.categoryId === me.categoryId);
     field.appendChild(card);
   });
 }
@@ -391,63 +397,148 @@ function renderSummary(state){
   $('summaryWait').classList.toggle('hidden', isHost);
 }
 
-// ---------- drag & drop (pointer-based, touch friendly) ----------
-function attachDrag(card, itemId){
-  let dragging = false, clone = null, startX=0, startY=0;
+// ---------- drag & float physics (pointer-based, touch friendly) ----------
+// Cards float like a puck on ice: release with velocity, it keeps drifting and
+// slowly loses speed to friction. Reach the top send-bar with a matching item
+// to score; drift all the way to the left/right edge of the screen to pass it
+// to that neighbor. If it runs out of momentum first, it just stops mid-air.
+const flyingIds = new Set();
+const FRICTION = 0.965;          // velocity multiplier applied every ~16ms frame
+const STOP_SPEED = 0.02;         // px/ms — below this, the card is considered "stopped"
+const EDGE_MARGIN = 10;          // px from the true screen edge that counts as "reached"
+
+function attachDrag(card, itemId, matchesOwnCategory){
+  let dragging = false;
+  let lastX=0, lastY=0, lastT=0, vx=0, vy=0;
+  let rafId = null;
+
+  function startFloat(fromRect){
+    card.classList.add('flying');
+    card.style.left = fromRect.left + 'px';
+    card.style.top = fromRect.top + 'px';
+    card.style.width = fromRect.width + 'px';
+    card.style.height = fromRect.height + 'px';
+  }
 
   card.addEventListener('pointerdown', e => {
+    if(flyingIds.has(itemId)) return; // already mid-flight from a previous flick
     e.preventDefault();
+    cancelAnimationFrame(rafId);
     dragging = true;
-    startX = e.clientX; startY = e.clientY;
-    clone = card.cloneNode(true);
-    clone.classList.add('dragging');
-    clone.style.left = (e.clientX - 39) + 'px';
-    clone.style.top = (e.clientY - 48) + 'px';
-    document.body.appendChild(clone);
-    card.style.opacity = '0.25';
+    flyingIds.add(itemId);
+    const rect = card.getBoundingClientRect();
+    startFloat(rect);
+    lastX = e.clientX - rect.left; // pointer offset within the card, so it doesn't jump
+    lastY = e.clientY - rect.top;
+    lastT = performance.now();
+    vx = 0; vy = 0;
+    card.setPointerCapture && card.setPointerCapture(e.pointerId);
   });
 
-  window.addEventListener('pointermove', e => {
-    if(!dragging || !clone) return;
-    clone.style.left = (e.clientX - 39) + 'px';
-    clone.style.top = (e.clientY - 48) + 'px';
-    updateDropHighlight(e.clientX, e.clientY);
+  card.addEventListener('pointermove', e => {
+    if(!dragging) return;
+    const now = performance.now();
+    const dt = Math.max(1, now - lastT);
+    const newLeft = e.clientX - lastX;
+    const newTop = e.clientY - lastY;
+    const curLeft = parseFloat(card.style.left);
+    const curTop = parseFloat(card.style.top);
+    vx = (newLeft - curLeft) / dt;
+    vy = (newTop - curTop) / dt;
+    lastT = now;
+    card.style.left = newLeft + 'px';
+    card.style.top = newTop + 'px';
+    updateSendbarHighlight(card);
   });
 
-  window.addEventListener('pointerup', e => {
+  card.addEventListener('pointerup', e => {
     if(!dragging) return;
     dragging = false;
-    card.style.opacity = '1';
-    if(clone){ clone.remove(); clone = null; }
-    clearDropHighlight();
-    const zone = zoneAt(e.clientX, e.clientY);
-    if(zone === 'box') socket.emit('collect', { itemId });
-    else if(zone === 'left') socket.emit('pass', { itemId, direction:'left' });
-    else if(zone === 'right') socket.emit('pass', { itemId, direction:'right' });
+    clearSendbarHighlight();
+    // hand off to the momentum simulation with whatever velocity we captured
+    rafId = requestAnimationFrame(t => driftFrame(t, card, itemId, matchesOwnCategory, { v:() => [vx,vy], set:(x,y)=>{vx=x;vy=y;} }));
   });
+
+  function driftFrame(now, card, itemId, matchesOwnCategory, vel){
+    let [vx, vy] = vel.v();
+    const speed = Math.hypot(vx, vy);
+
+    let left = parseFloat(card.style.left);
+    let top = parseFloat(card.style.top);
+    const w = card.offsetWidth, h = card.offsetHeight;
+
+    left += vx * 16;
+    top += vy * 16;
+
+    // reached the top send-bar
+    const barRect = $('sendBar').getBoundingClientRect();
+    if(top <= barRect.bottom){
+      if(matchesOwnCategory){
+        finishSuccess(card, itemId, 'collect', null);
+        return;
+      } else {
+        // wrong category — the bar rejects it, bounce back down
+        rejectFlash();
+        top = barRect.bottom;
+        vy = Math.abs(vy) * 0.5 + 0.15;
+      }
+    }
+
+    // reached left/right screen edge
+    if(left <= EDGE_MARGIN){
+      finishSuccess(card, itemId, 'pass', 'left');
+      return;
+    }
+    if(left + w >= window.innerWidth - EDGE_MARGIN){
+      finishSuccess(card, itemId, 'pass', 'right');
+      return;
+    }
+
+    // bounce off the bottom of the playable area
+    const bottomLimit = window.innerHeight - 12;
+    if(top + h >= bottomLimit){
+      top = bottomLimit - h;
+      vy = -Math.abs(vy) * 0.5;
+    }
+
+    vx *= FRICTION; vy *= FRICTION;
+    card.style.left = left + 'px';
+    card.style.top = top + 'px';
+    vel.set(vx, vy);
+
+    if(speed < STOP_SPEED){
+      // ran out of momentum mid-air — it just stays put, still grabbable
+      flyingIds.delete(itemId);
+      return;
+    }
+    requestAnimationFrame(t => driftFrame(t, card, itemId, matchesOwnCategory, vel));
+  }
+
+  function finishSuccess(card, itemId, action, direction){
+    card.style.transition = 'opacity .15s ease, transform .15s ease';
+    card.style.opacity = '0';
+    card.style.transform = 'scale(0.6)';
+    setTimeout(() => {
+      flyingIds.delete(itemId);
+      card.remove();
+      if(action === 'collect') socket.emit('collect', { itemId });
+      else socket.emit('pass', { itemId, direction });
+    }, 140);
+  }
 }
 
-function zoneAt(x,y){
-  const box = $('boxZone').getBoundingClientRect();
-  const left = $('leftZone').getBoundingClientRect();
-  const right = $('rightZone').getBoundingClientRect();
-  if(within(x,y,box)) return 'box';
-  if(within(x,y,left)) return 'left';
-  if(within(x,y,right)) return 'right';
-  return null;
+function updateSendbarHighlight(card){
+  const barRect = $('sendBar').getBoundingClientRect();
+  const cardRect = card.getBoundingClientRect();
+  $('sendBar').classList.toggle('zone-active', cardRect.top <= barRect.bottom + 20);
 }
-function within(x,y,r){ return x>=r.left && x<=r.right && y>=r.top && y<=r.bottom; }
-
-function updateDropHighlight(x,y){
-  const zone = zoneAt(x,y);
-  $('boxZone').classList.toggle('drag-over', zone==='box');
-  $('leftZone').classList.toggle('drag-over', zone==='left');
-  $('rightZone').classList.toggle('drag-over', zone==='right');
+function clearSendbarHighlight(){
+  $('sendBar').classList.remove('zone-active');
 }
-function clearDropHighlight(){
-  $('boxZone').classList.remove('drag-over');
-  $('leftZone').classList.remove('drag-over');
-  $('rightZone').classList.remove('drag-over');
+function rejectFlash(){
+  const bar = $('sendBar');
+  bar.classList.add('zone-reject');
+  setTimeout(() => bar.classList.remove('zone-reject'), 220);
 }
 </script>
 </body>
